@@ -7,12 +7,16 @@ import keyboard
 from mss import mss
 import os
 import sys
+import config
 
 class DNFBot:
     def __init__(self):
         # 禁用PyAutoGUI的安全功能
         pyautogui.FAILSAFE = False
         pyautogui.PAUSE = 0.1
+        
+        # 配置引用
+        self.config = config
         
         # 屏幕截图对象
         self.sct = mss()
@@ -25,12 +29,12 @@ class DNFBot:
             # 如果是源码运行
             self.base_path = os.path.dirname(os.path.abspath(__file__))
         
-        # 游戏窗口区域 (需要根据实际调整)
-        self.game_region = {"top": 0, "left": 0, "width": 1920, "height": 1080}
+        # 游戏窗口区域（从配置文件读取）
+        self.game_region = self.config.GAME_WINDOW
         
-        # 技能键设置
-        self.attack_key = 'a'  # 攻击键
-        self.pickup_key = 'z'  # 拾取键
+        # 技能键设置（从配置文件读取）
+        self.attack_key = self.config.KEYS["attack"]
+        self.pickup_key = self.config.KEYS["pickup"]
         
         # 运行状态
         self.running = False
@@ -64,21 +68,140 @@ class DNFBot:
             return []
     
     def find_multiple_templates(self, screen, template_names, threshold=0.7):
-        """查找多个模板，返回所有匹配结果"""
+        """改进的多模板匹配，提高精确度"""
         all_matches = []
+        
         for template_name in template_names:
             template_path = os.path.join(self.base_path, "templates", template_name)
-            if os.path.exists(template_path):
-                matches = self.find_template(screen, template_path, threshold)
-                if matches:
-                    # 为每个匹配添加模板名称标识
-                    for match in matches:
-                        all_matches.append((match[0], match[1], template_name))
-                    print(f"✅ 使用模板 {template_name} 找到 {len(matches)} 个目标")
-            else:
-                print(f"⚠️ 模板文件不存在: {template_path}")
+            if not os.path.exists(template_path):
+                print(f"警告: 模板文件不存在: {template_path}")
+                continue
+            
+            matches = self.find_template_improved(screen, template_path, threshold)
+            if matches:
+                print(f"✅ 使用模板 {template_name} 找到 {len(matches)} 个目标")
+                all_matches.extend(matches)
+        
+        # 去重：移除距离过近的重复检测
+        if len(all_matches) > 1:
+            unique_matches = self.remove_duplicate_matches(all_matches)
+            return unique_matches
         
         return all_matches
+    
+    def find_template_improved(self, screen, template_path, threshold=0.7):
+        """改进的单模板匹配"""
+        try:
+            # 加载模板（彩色）
+            template = cv2.imread(template_path)
+            if template is None:
+                print(f"警告: 无法加载模板图片: {template_path}")
+                return []
+            
+            # 获取模板尺寸
+            h, w = template.shape[:2]
+            
+            # 方法1: 彩色模板匹配
+            color_matches = self.match_color_template(screen, template, threshold)
+            
+            # 方法2: 灰度模板匹配（作为备用）
+            gray_matches = self.match_gray_template(screen, template, threshold)
+            
+            # 合并结果，优先使用彩色匹配
+            all_matches = color_matches if color_matches else gray_matches
+            
+            # 验证匹配质量
+            validated_matches = []
+            for match in all_matches:
+                x, y, confidence = match
+                if self.validate_match_region(screen, template, x, y):
+                    validated_matches.append((x + w//2, y + h//2, confidence))
+            
+            return validated_matches
+            
+        except Exception as e:
+            print(f"模板匹配出错: {e}")
+            return []
+    
+    def match_color_template(self, screen, template, threshold):
+        """彩色模板匹配"""
+        res = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+        locations = np.where(res >= threshold)
+        
+        matches = []
+        for y, x in zip(locations[0], locations[1]):
+            confidence = res[y, x]
+            matches.append((x, y, confidence))
+        
+        return matches
+    
+    def match_gray_template(self, screen, template, threshold):
+        """灰度模板匹配"""
+        screen_gray = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
+        template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+        
+        res = cv2.matchTemplate(screen_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+        locations = np.where(res >= threshold)
+        
+        matches = []
+        for y, x in zip(locations[0], locations[1]):
+            confidence = res[y, x]
+            matches.append((x, y, confidence))
+        
+        return matches
+    
+    def validate_match_region(self, screen, template, x, y):
+        """验证匹配区域的质量"""
+        try:
+            h, w = template.shape[:2]
+            
+            # 检查边界
+            if x + w > screen.shape[1] or y + h > screen.shape[0]:
+                return False
+            
+            # 提取匹配区域
+            region = screen[y:y+h, x:x+w]
+            
+            # 计算区域的特征（可以添加更多验证逻辑）
+            # 例如：检查区域的亮度、对比度等
+            mean_brightness = np.mean(region)
+            
+            # 简单验证：排除过暗或过亮的区域
+            if mean_brightness < 10 or mean_brightness > 245:
+                return False
+            
+            return True
+            
+        except Exception:
+            return False
+    
+    def remove_duplicate_matches(self, matches):
+        """移除重复的匹配结果"""
+        if not matches:
+            return []
+        
+        # 按confidence排序，保留最佳匹配
+        sorted_matches = sorted(matches, key=lambda x: x[2] if len(x) > 2 else 0, reverse=True)
+        
+        unique_matches = []
+        min_distance = self.config.THRESHOLDS["duplicate_distance"]
+        
+        for match in sorted_matches:
+            x, y = match[0], match[1]
+            is_duplicate = False
+            
+            for unique_match in unique_matches:
+                ux, uy = unique_match[0], unique_match[1]
+                distance = np.sqrt((x - ux)**2 + (y - uy)**2)
+                
+                if distance < min_distance:
+                    is_duplicate = True
+                    break
+            
+            if not is_duplicate:
+                unique_matches.append(match)
+        
+        return unique_matches
     
     def detect_monsters(self, screen):
         """检测怪物 - 基础版本使用颜色检测"""
@@ -109,56 +232,53 @@ class DNFBot:
         return monsters
     
     def detect_items(self, screen):
-        """检测掉落物品 - 支持模板匹配和颜色检测"""
-        all_items = []
+        """检测掉落物品 - 目前仅检测金币"""
+        # 只检测金币（通过颜色检测）
+        coins = self.detect_coins(screen)
+        return coins
+    
+    def detect_materials(self, screen):
+        """检测材料物品 - 使用模板匹配"""
+        materials = []
         
-        # 方法1: 使用物品模板匹配
+        # 使用物品模板匹配
         item_templates = ["item1.png", "item2.png"]
-        template_items = self.find_multiple_templates(screen, item_templates, 0.6)
+        template_items = self.find_multiple_templates(screen, item_templates, 
+                                                     self.config.THRESHOLDS["item_template"])
         
         # 转换格式，只保留坐标
         for item in template_items:
-            all_items.append((item[0], item[1]))
+            materials.append((item[0], item[1]))
             
-        if template_items:
-            print(f"🎁 通过模板匹配找到 {len(template_items)} 个物品")
+        if materials:
+            print(f"🎁 检测到 {len(materials)} 个材料")
         
-        # 方法2: 颜色检测作为补充（检测金色物品）
+        return materials
+    
+    def detect_coins(self, screen):
+        """检测金币 - 使用颜色检测"""
+        coins = []
+        
+        # 颜色检测金币（黄色/金色）
         hsv = cv2.cvtColor(screen, cv2.COLOR_BGR2HSV)
         
-        # 检测金色物品（可根据需要调整）
-        lower_gold = np.array([15, 100, 100])
-        upper_gold = np.array([35, 255, 255])
+        # 检测金币颜色范围
+        lower_gold = np.array(self.config.COLORS["gold_coins"]["lower"])
+        upper_gold = np.array(self.config.COLORS["gold_coins"]["upper"])
         mask = cv2.inRange(hsv, lower_gold, upper_gold)
         
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        color_items = []
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > 50:
+            if area > self.config.THRESHOLDS["item_area"]:
                 x, y, w, h = cv2.boundingRect(contour)
-                color_items.append((x + w//2, y + h//2))
+                coins.append((x + w//2, y + h//2))
         
-        if color_items:
-            print(f"💰 通过颜色检测找到 {len(color_items)} 个金色物品")
-            all_items.extend(color_items)
+        if coins:
+            print(f"💰 检测到 {len(coins)} 个金币")
         
-        # 去重：合并距离很近的物品（可能是同一个物品被两种方法都检测到）
-        if len(all_items) > 1:
-            unique_items = []
-            for item in all_items:
-                is_duplicate = False
-                for existing in unique_items:
-                    distance = ((item[0] - existing[0])**2 + (item[1] - existing[1])**2)**0.5
-                    if distance < 30:  # 30像素内认为是同一个物品
-                        is_duplicate = True
-                        break
-                if not is_duplicate:
-                    unique_items.append(item)
-            return unique_items
-        
-        return all_items
+        return coins
     
     def detect_doors(self, screen):
         """检测传送门 - 支持多种门的模板"""

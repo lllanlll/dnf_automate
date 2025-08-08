@@ -7,14 +7,14 @@ DNF Bot 配置文件
 GAME_WINDOW = {
     "top": 0,
     "left": 0, 
-    "width": 1920,
-    "height": 1080
+    "width": 2134,
+    "height": 1200
 }
 
 # 按键配置
 KEYS = {
-    "attack": "a",      # 攻击键
-    "pickup": "z",      # 拾取键
+    "attack": "x",      # 攻击键
+    "pickup": "x",      # 拾取键
     "up": "up",         # 上移动
     "down": "down",     # 下移动
     "left": "left",     # 左移动
@@ -32,8 +32,8 @@ COLORS = {
         "upper2": [180, 255, 255]
     },
     
-    # 金色物品范围
-    "gold_items": {
+    # 金币范围 (黄色/金色)
+    "gold_coins": {
         "lower": [15, 100, 100],
         "upper": [35, 255, 255]
     }
@@ -44,9 +44,9 @@ THRESHOLDS = {
     "monster_area": 100,        # 怪物最小面积
     "item_area": 50,            # 物品最小面积
     "door_template": 0.7,       # 门模板匹配阈值
-    "item_template": 0.6,       # 物品模板匹配阈值
+    "item_template": 0.65,      # 物品模板匹配阈值 (提高精确度)
     "movement_threshold": 20,   # 移动阈值
-    "duplicate_distance": 30    # 去重距离阈值（像素）
+    "duplicate_distance": 50    # 去重距离阈值（像素）
 }
 
 # 模板文件配置

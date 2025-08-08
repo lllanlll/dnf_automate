@@ -63,10 +63,10 @@ def test_templates():
             if doors:
                 print(f"🚪 检测到 {len(doors)} 个门")
             
-            # 测试物品识别
-            items = bot.detect_items(screen)
+            # 测试金币识别
+            items = bot.detect_items(screen)  # 现在只返回金币
             if items:
-                print(f"🎁 检测到 {len(items)} 个物品")
+                print(f"💰 检测到 {len(items)} 个金币")
             
             # 测试怪物识别
             monsters = bot.detect_monsters(screen)
@@ -82,11 +82,11 @@ def test_templates():
                 cv2.putText(display_screen, "DOOR", (door[0]-20, door[1]-25), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
-            # 绘制物品（蓝色圆圈）
-            for item in items:
-                cv2.circle(display_screen, item, 15, (255, 0, 0), 3)
-                cv2.putText(display_screen, "ITEM", (item[0]-20, item[1]-25), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            # 绘制金币（黄色圆圈）
+            for coin in items:  # items现在只包含金币
+                cv2.circle(display_screen, coin, 12, (0, 255, 255), 3)
+                cv2.putText(display_screen, "COIN", (coin[0]-20, coin[1]-25), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 2)
             
             # 绘制怪物（红色圆圈）
             for monster in monsters:
