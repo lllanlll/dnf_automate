@@ -41,10 +41,18 @@ COLORS = {
 
 # 检测阈值
 THRESHOLDS = {
-    "monster_area": 100,    # 怪物最小面积
-    "item_area": 50,        # 物品最小面积
-    "template_match": 0.7,  # 模板匹配阈值
-    "movement_threshold": 20 # 移动阈值
+    "monster_area": 100,        # 怪物最小面积
+    "item_area": 50,            # 物品最小面积
+    "door_template": 0.7,       # 门模板匹配阈值
+    "item_template": 0.6,       # 物品模板匹配阈值
+    "movement_threshold": 20,   # 移动阈值
+    "duplicate_distance": 30    # 去重距离阈值（像素）
+}
+
+# 模板文件配置
+TEMPLATES = {
+    "doors": ["door1.png", "door2.png", "door3.png", "door4.png"],
+    "items": ["item1.png", "item2.png"]
 }
 
 # 时间延迟配置 (秒)

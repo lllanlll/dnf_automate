@@ -43,17 +43,42 @@ class DNFBot:
     
     def find_template(self, screen, template_path, threshold=0.8):
         """模板匹配查找目标"""
-        template = cv2.imread(template_path, 0)
-        screen_gray = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
+        try:
+            template = cv2.imread(template_path, 0)
+            if template is None:
+                print(f"警告: 无法加载模板图片: {template_path}")
+                return []
+                
+            screen_gray = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
+            
+            result = cv2.matchTemplate(screen_gray, template, cv2.TM_CCOEFF_NORMED)
+            locations = np.where(result >= threshold)
+            
+            matches = []
+            for pt in zip(*locations[::-1]):
+                matches.append((pt[0] + template.shape[1]//2, pt[1] + template.shape[0]//2))
+            
+            return matches
+        except Exception as e:
+            print(f"模板匹配错误 {template_path}: {e}")
+            return []
+    
+    def find_multiple_templates(self, screen, template_names, threshold=0.7):
+        """查找多个模板，返回所有匹配结果"""
+        all_matches = []
+        for template_name in template_names:
+            template_path = os.path.join(self.base_path, "templates", template_name)
+            if os.path.exists(template_path):
+                matches = self.find_template(screen, template_path, threshold)
+                if matches:
+                    # 为每个匹配添加模板名称标识
+                    for match in matches:
+                        all_matches.append((match[0], match[1], template_name))
+                    print(f"✅ 使用模板 {template_name} 找到 {len(matches)} 个目标")
+            else:
+                print(f"⚠️ 模板文件不存在: {template_path}")
         
-        result = cv2.matchTemplate(screen_gray, template, cv2.TM_CCOEFF_NORMED)
-        locations = np.where(result >= threshold)
-        
-        matches = []
-        for pt in zip(*locations[::-1]):
-            matches.append((pt[0] + template.shape[1]//2, pt[1] + template.shape[0]//2))
-        
-        return matches
+        return all_matches
     
     def detect_monsters(self, screen):
         """检测怪物 - 基础版本使用颜色检测"""
@@ -84,9 +109,21 @@ class DNFBot:
         return monsters
     
     def detect_items(self, screen):
-        """检测掉落物品 - 基础版本"""
-        # 物品通常有特定的光效或颜色
-        # 这里需要根据实际游戏调整
+        """检测掉落物品 - 支持模板匹配和颜色检测"""
+        all_items = []
+        
+        # 方法1: 使用物品模板匹配
+        item_templates = ["item1.png", "item2.png"]
+        template_items = self.find_multiple_templates(screen, item_templates, 0.6)
+        
+        # 转换格式，只保留坐标
+        for item in template_items:
+            all_items.append((item[0], item[1]))
+            
+        if template_items:
+            print(f"🎁 通过模板匹配找到 {len(template_items)} 个物品")
+        
+        # 方法2: 颜色检测作为补充（检测金色物品）
         hsv = cv2.cvtColor(screen, cv2.COLOR_BGR2HSV)
         
         # 检测金色物品（可根据需要调整）
@@ -96,28 +133,54 @@ class DNFBot:
         
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        items = []
+        color_items = []
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > 50:
                 x, y, w, h = cv2.boundingRect(contour)
-                items.append((x + w//2, y + h//2))
+                color_items.append((x + w//2, y + h//2))
         
-        return items
+        if color_items:
+            print(f"💰 通过颜色检测找到 {len(color_items)} 个金色物品")
+            all_items.extend(color_items)
+        
+        # 去重：合并距离很近的物品（可能是同一个物品被两种方法都检测到）
+        if len(all_items) > 1:
+            unique_items = []
+            for item in all_items:
+                is_duplicate = False
+                for existing in unique_items:
+                    distance = ((item[0] - existing[0])**2 + (item[1] - existing[1])**2)**0.5
+                    if distance < 30:  # 30像素内认为是同一个物品
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    unique_items.append(item)
+            return unique_items
+        
+        return all_items
     
     def detect_doors(self, screen):
-        """检测传送门"""
-        # 使用模板匹配或特征检测
-        # 构建模板文件的完整路径
-        template_path = os.path.join(self.base_path, "templates", "door.png")
+        """检测传送门 - 支持多种门的模板"""
+        # 支持4种不同的门模板
+        door_templates = ["door1.png", "door2.png", "door3.png", "door4.png"]
+        door_matches = self.find_multiple_templates(screen, door_templates, 0.7)
         
-        # 检查模板文件是否存在
-        if not os.path.exists(template_path):
-            print(f"警告: 模板文件不存在: {template_path}")
-            return []
+        if door_matches:
+            print(f"🚪 找到 {len(door_matches)} 个传送门")
+            # 打印每种门的匹配结果
+            door_types = {}
+            for door in door_matches:
+                door_type = door[2]  # 模板文件名
+                if door_type not in door_types:
+                    door_types[door_type] = 0
+                door_types[door_type] += 1
             
-        doors = self.find_template(screen, template_path, 0.7)
-        return doors
+            for door_type, count in door_types.items():
+                print(f"   - {door_type}: {count} 个")
+        
+        # 返回坐标列表（去除模板名称）
+        return [(door[0], door[1]) for door in door_matches]
     
     def move_to_position(self, target_x, target_y):
         """移动角色到指定位置"""
@@ -217,21 +280,21 @@ class DNFBot:
                 # 检测怪物
                 monsters = self.detect_monsters(screen)
                 if monsters:
-                    print(f"发现 {len(monsters)} 个怪物")
+                    print(f"👹 发现 {len(monsters)} 个怪物，开始攻击...")
                     self.attack_monsters(monsters)
                     continue
                 
                 # 检测物品
                 items = self.detect_items(screen)
                 if items:
-                    print(f"发现 {len(items)} 个物品")
+                    print(f"🎁 发现 {len(items)} 个物品，开始拾取...")
                     self.collect_items(items)
                     continue
                 
                 # 检测门
                 doors = self.detect_doors(screen)
                 if doors:
-                    print("发现传送门，前往下一房间")
+                    print(f"🚪 发现 {len(doors)} 个传送门，前往下一房间...")
                     self.go_to_next_room(doors)
                     continue
                 
@@ -241,7 +304,9 @@ class DNFBot:
                 time.sleep(0.1)
                 
             except Exception as e:
-                print(f"错误: {e}")
+                print(f"❌ 运行错误: {e}")
+                import traceback
+                traceback.print_exc()
                 time.sleep(1)
 
 if __name__ == "__main__":
