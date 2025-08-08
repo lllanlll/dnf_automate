@@ -8,6 +8,7 @@ from mss import mss
 import os
 import sys
 import config
+from datetime import datetime
 
 class DNFBot:
     def __init__(self):
@@ -38,6 +39,30 @@ class DNFBot:
         
         # 运行状态
         self.running = False
+        
+        # 调试功能 - 确保EXE和源码都能正确保存调试文件
+        if getattr(sys, 'frozen', False):
+            # EXE运行时：保存到EXE文件所在目录
+            exe_dir = os.path.dirname(sys.executable)
+            self.debug_folder = os.path.join(exe_dir, "debug_screenshots")
+        else:
+            # 源码运行时：保存到脚本所在目录
+            self.debug_folder = os.path.join(self.base_path, "debug_screenshots")
+        
+        # 创建调试文件夹
+        try:
+            if not os.path.exists(self.debug_folder):
+                os.makedirs(self.debug_folder)
+            print(f"📸 调试截图保存路径: {self.debug_folder}")
+        except Exception as e:
+            # 如果无法创建，则使用当前工作目录
+            self.debug_folder = os.path.join(os.getcwd(), "debug_screenshots")
+            if not os.path.exists(self.debug_folder):
+                os.makedirs(self.debug_folder)
+            print(f"⚠️  调试截图保存到工作目录: {self.debug_folder}")
+        
+        self.last_debug_time = 0
+        self.debug_interval = 10  # 10秒间隔
         
     def capture_screen(self):
         """截取游戏屏幕"""
@@ -631,10 +656,73 @@ class DNFBot:
                 pyautogui.press(self.config.KEYS["enter_door"])
                 time.sleep(self.config.DELAYS["door_enter"])
     
+    def save_debug_screenshot(self, screen, char_pos, monsters, items, doors):
+        """保存调试截图，标注识别结果"""
+        debug_screen = screen.copy()
+        
+        # 绘制角色位置（红色大圆）
+        if char_pos:
+            cv2.circle(debug_screen, char_pos, 25, (0, 0, 255), 4)
+            cv2.putText(debug_screen, "PLAYER", (char_pos[0] - 30, char_pos[1] - 35), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        
+        # 绘制怪物（蓝色圆）
+        for i, monster in enumerate(monsters):
+            cv2.circle(debug_screen, monster, 18, (255, 0, 0), 3)
+            cv2.putText(debug_screen, f"M{i+1}", (monster[0] - 10, monster[1] - 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        
+        # 绘制物品（黄色圆）
+        for i, item in enumerate(items):
+            cv2.circle(debug_screen, item, 12, (0, 255, 255), 2)
+            cv2.putText(debug_screen, f"I{i+1}", (item[0] - 8, item[1] - 15), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+        
+        # 绘制传送门（绿色方框）
+        for i, door in enumerate(doors):
+            cv2.rectangle(debug_screen, (door[0]-20, door[1]-20), (door[0]+20, door[1]+20), (0, 255, 0), 3)
+            cv2.putText(debug_screen, f"D{i+1}", (door[0] - 10, door[1] - 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        
+        # 添加时间戳和统计信息
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        cv2.putText(debug_screen, f"Time: {timestamp}", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        
+        if char_pos:
+            cv2.putText(debug_screen, f"Player: {char_pos}", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        else:
+            cv2.putText(debug_screen, "Player: NOT FOUND", (10, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+        
+        cv2.putText(debug_screen, f"Monsters: {len(monsters)}", (10, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        cv2.putText(debug_screen, f"Items: {len(items)}", (10, 120), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        cv2.putText(debug_screen, f"Doors: {len(doors)}", (10, 150), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # 保存截图
+        filename = f"debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        filepath = os.path.join(self.debug_folder, filename)
+        cv2.imwrite(filepath, debug_screen)
+        
+        print(f"📸 调试截图已保存: {filename}")
+        if char_pos:
+            print(f"🎯 当前识别的角色位置: {char_pos}")
+        else:
+            print("❌ 未识别到角色位置")
+        print(f"👹 怪物数: {len(monsters)}, 💰 物品数: {len(items)}, 🚪 门数: {len(doors)}")
+        print("-" * 60)
+    
     def main_loop(self):
         """主循环"""
         print("DNF自动刷图开始运行...")
         print("按 F1 开始/暂停，按 F2 停止")
+        print(f"📸 调试截图将每10秒保存到: {self.debug_folder}")
         
         while True:
             if keyboard.is_pressed('f1'):
@@ -653,6 +741,9 @@ class DNFBot:
             try:
                 # 截取屏幕
                 screen = self.capture_screen()
+                
+                # 获取角色位置（用于调试）
+                char_pos = self.get_character_position(screen)
                 
                 # 检测怪物
                 monsters = self.detect_monsters(screen)
@@ -674,6 +765,12 @@ class DNFBot:
                     print(f"🚪 发现 {len(doors)} 个传送门，前往下一房间...")
                     self.go_to_next_room(doors, screen)
                     continue
+                
+                # 定期保存调试截图（每10秒）
+                current_time = time.time()
+                if current_time - self.last_debug_time >= self.debug_interval:
+                    self.save_debug_screenshot(screen, char_pos, monsters, items, doors)
+                    self.last_debug_time = current_time
                 
                 # 如果没有怪物、物品和门，检查是否需要重新开始
                 # 这里可以添加"再来一次"的检测逻辑
