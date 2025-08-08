@@ -1,0 +1,3 @@
+# 打包相关的依赖
+pyinstaller==5.13.2
+auto-py-to-exe==2.40.0

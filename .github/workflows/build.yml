@@ -1,0 +1,95 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r build_requirements.txt
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --console --name "DNF自动刷图" dnf_bot.py
+    
+    - name: Upload Windows EXE
+      uses: actions/upload-artifact@v3
+      with:
+        name: dnf-bot-windows
+        path: |
+          dist/DNF自动刷图.exe
+          templates/
+          使用说明.txt
+          启动器.bat
+
+  build-release:
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r build_requirements.txt
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --console --name "DNF自动刷图" dnf_bot.py
+    
+    - name: Create Release Package
+      run: |
+        mkdir release-package
+        copy "dist\DNF自动刷图.exe" release-package\
+        xcopy templates release-package\templates\ /E /I
+        copy "使用说明.txt" release-package\
+        copy "启动器.bat" release-package\
+        powershell Compress-Archive -Path release-package\* -DestinationPath DNF自动刷图-Windows.zip
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: DNF自动刷图-Windows.zip
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## DNF自动刷图工具 ${{ github.ref_name }}
+          
+          ### 下载说明
+          1. 下载 `DNF自动刷图-Windows.zip`
+          2. 解压到任意文件夹
+          3. 运行 `DNF自动刷图.exe` 或 `启动器.bat`
+          
+          ### 使用方法
+          - F1: 开始/暂停
+          - F2: 停止
+          
+          ### 注意事项
+          - 需要在templates文件夹中添加door.png模板
+          - 建议以管理员身份运行
+          
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
